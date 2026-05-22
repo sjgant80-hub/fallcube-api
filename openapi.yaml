@@ -1,0 +1,761 @@
+openapi: 3.0.3
+info:
+  title: FallCube API
+  version: 1.0.0
+  description: >-
+    Sovereign File Storage API — upload, search, analyze, stream.
+    Your files. Your server.
+  contact:
+    name: FallCube API Support
+  x-rapidapi-category: Storage > File Management
+
+servers:
+  - url: https://fallcube-api.onrender.com
+    description: Production
+
+security:
+  - apiKey: []
+  - rapidApiKey: []
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    rapidApiKey:
+      type: apiKey
+      in: header
+      name: X-RapidAPI-Key
+
+  schemas:
+    FileMeta:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ext:
+          type: string
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        bytes:
+          type: integer
+        size:
+          type: string
+        category:
+          type: string
+          enum: [document, image, code, media, archive, data, other]
+        hash:
+          type: string
+        starred:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        folder:
+          type: string
+          nullable: true
+        uploadedBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AnalysisResult:
+      type: object
+      properties:
+        summary:
+          type: string
+        entities:
+          type: array
+          items:
+            type: string
+        structure:
+          type: string
+        insights:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        actions:
+          type: array
+          items:
+            type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    FolderInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+        bytes:
+          type: integer
+        size:
+          type: string
+
+paths:
+  /:
+    get:
+      operationId: healthCheck
+      summary: Health check and service info
+      description: Returns service status, file count, storage usage, and available endpoints.
+      security: []
+      responses:
+        '200':
+          description: Service status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  status:
+                    type: string
+                  stats:
+                    type: object
+                    properties:
+                      files:
+                        type: integer
+                      storage:
+                        type: string
+                      bytes:
+                        type: integer
+
+  /upload:
+    post:
+      operationId: uploadFile
+      summary: Upload a single file
+      description: >-
+        Upload a file with optional tags and folder assignment.
+        Max file size depends on your subscription tier.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+                tags:
+                  type: string
+                  description: Comma-separated tags
+                folder:
+                  type: string
+                  description: Target folder path
+      responses:
+        '201':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  file:
+                    $ref: '#/components/schemas/FileMeta'
+        '400':
+          description: No file provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid API key
+        '429':
+          description: Rate limit exceeded
+
+  /upload/batch:
+    post:
+      operationId: uploadBatch
+      summary: Upload up to 20 files at once
+      description: >-
+        Batch upload multiple files in a single request.
+        Maximum 20 files per batch. Shared tags and folder applied to all.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - files
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  maxItems: 20
+                  description: Up to 20 files
+                tags:
+                  type: string
+                  description: Comma-separated tags applied to all files
+                folder:
+                  type: string
+                  description: Target folder for all files
+      responses:
+        '201':
+          description: Files uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+                  files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileMeta'
+        '400':
+          description: No files provided
+        '401':
+          description: Missing or invalid API key
+        '429':
+          description: Rate limit exceeded
+
+  /files:
+    get:
+      operationId: listFiles
+      summary: List and filter files
+      description: >-
+        Retrieve files with optional filtering by category, extension, folder,
+        starred status, or tag. Supports sorting and pagination.
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [document, image, code, media, archive, data, other]
+          description: Filter by file category
+        - name: ext
+          in: query
+          schema:
+            type: string
+          description: Filter by file extension (e.g. pdf, png, js)
+        - name: folder
+          in: query
+          schema:
+            type: string
+          description: Filter by folder path
+        - name: starred
+          in: query
+          schema:
+            type: string
+            enum: ['true']
+          description: Filter starred files only
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: Filter by tag
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, name, bytes, ext]
+            default: createdAt
+          description: Sort field
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+          description: Results per page
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: File listing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileMeta'
+                  total:
+                    type: integer
+                  offset:
+                    type: integer
+                  limit:
+                    type: integer
+                  hasMore:
+                    type: boolean
+        '401':
+          description: Missing or invalid API key
+        '429':
+          description: Rate limit exceeded
+
+  /search:
+    get:
+      operationId: searchFiles
+      summary: Full-text search across files
+      description: >-
+        Search files by name, extension, category, tags, and folder.
+        Results are ranked by relevance score.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+          description: Maximum results to return
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileMeta'
+                  total:
+                    type: integer
+        '400':
+          description: Missing query parameter
+        '401':
+          description: Missing or invalid API key
+        '429':
+          description: Rate limit exceeded
+
+  /files/{id}:
+    get:
+      operationId: getFile
+      summary: Get file metadata
+      description: Retrieve full metadata for a single file by ID.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID
+      responses:
+        '200':
+          description: File metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file:
+                    $ref: '#/components/schemas/FileMeta'
+        '404':
+          description: File not found
+        '401':
+          description: Missing or invalid API key
+
+    patch:
+      operationId: updateFile
+      summary: Update file metadata
+      description: >-
+        Update file name, starred status, tags, or folder.
+        Only provided fields are updated.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: New file name
+                starred:
+                  type: boolean
+                  description: Star or unstar the file
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  description: Replace tags
+                folder:
+                  type: string
+                  nullable: true
+                  description: Move to folder
+      responses:
+        '200':
+          description: File updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  file:
+                    $ref: '#/components/schemas/FileMeta'
+        '404':
+          description: File not found
+        '401':
+          description: Missing or invalid API key
+
+    delete:
+      operationId: deleteFile
+      summary: Delete a file
+      description: Permanently delete a file and its stored data.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID
+      responses:
+        '200':
+          description: File deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: string
+        '404':
+          description: File not found
+        '401':
+          description: Missing or invalid API key
+
+  /files/{id}/download:
+    get:
+      operationId: downloadFile
+      summary: Download a file
+      description: Download the raw file with Content-Disposition attachment header.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID
+      responses:
+        '200':
+          description: File binary data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+        '401':
+          description: Missing or invalid API key
+
+  /files/{id}/stream:
+    get:
+      operationId: streamFile
+      summary: Stream a file with range request support
+      description: >-
+        Stream file content inline. Supports HTTP Range headers for
+        partial content delivery, ideal for media playback.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID
+        - name: Range
+          in: header
+          schema:
+            type: string
+          description: Byte range (e.g. bytes=0-1023)
+      responses:
+        '200':
+          description: Full file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Partial content (range request)
+          headers:
+            Content-Range:
+              schema:
+                type: string
+            Accept-Ranges:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+        '401':
+          description: Missing or invalid API key
+
+  /files/{id}/duplicate:
+    post:
+      operationId: duplicateFile
+      summary: Duplicate a file
+      description: Create a copy of an existing file with new ID and metadata.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID to duplicate
+      responses:
+        '201':
+          description: File duplicated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  file:
+                    $ref: '#/components/schemas/FileMeta'
+        '404':
+          description: File not found
+        '401':
+          description: Missing or invalid API key
+
+  /files/{id}/analyze:
+    post:
+      operationId: analyzeFile
+      summary: AI-powered file analysis
+      description: >-
+        Analyze a file using AI (Claude, GPT, or Gemini). Returns structured
+        intelligence including summary, entities, insights, and suggested tags.
+        Supports documents, images, code, and data files.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: File ID to analyze
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum: [anthropic, openai, google]
+                  description: AI provider (auto-selected if omitted)
+                quality:
+                  type: string
+                  enum: [fast, best]
+                  default: fast
+                  description: Analysis quality tier
+                prompt:
+                  type: string
+                  description: Custom analysis focus or question
+      responses:
+        '200':
+          description: Analysis complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  file:
+                    type: string
+                  provider:
+                    type: string
+                  quality:
+                    type: string
+                  ms:
+                    type: integer
+                    description: Processing time in milliseconds
+                  analysis:
+                    $ref: '#/components/schemas/AnalysisResult'
+        '400':
+          description: Unsupported file type for analysis
+        '404':
+          description: File not found
+        '503':
+          description: No AI provider configured
+
+  /files/delete-batch:
+    post:
+      operationId: deleteBatch
+      summary: Bulk delete files
+      description: Delete multiple files by ID in a single request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Array of file IDs to delete
+      responses:
+        '200':
+          description: Batch delete results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: array
+                    items:
+                      type: string
+                  notFound:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Missing or invalid ids array
+        '401':
+          description: Missing or invalid API key
+
+  /folders:
+    get:
+      operationId: listFolders
+      summary: List all folders
+      description: >-
+        Returns all folders with file counts and storage usage per folder.
+      responses:
+        '200':
+          description: Folder listing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FolderInfo'
+        '401':
+          description: Missing or invalid API key
+
+  /stats:
+    get:
+      operationId: getStats
+      summary: Storage analytics and statistics
+      description: >-
+        Get comprehensive storage analytics including total files, storage usage,
+        category breakdown, top extensions, upload history, and AI provider status.
+      responses:
+        '200':
+          description: Storage statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  storage:
+                    type: object
+                    properties:
+                      bytes:
+                        type: integer
+                      formatted:
+                        type: string
+                  categories:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  topExtensions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ext:
+                          type: string
+                        count:
+                          type: integer
+                  uploads:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  starred:
+                    type: integer
+                  analyzed:
+                    type: integer
+        '401':
+          description: Missing or invalid API key
